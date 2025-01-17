@@ -15,7 +15,7 @@
 use crate::dynamic::payload::{DynamicLenPayload, WireTypeAndPayload};
 use crate::dynamic::DynamicMessage;
 use crate::internal::utils::{OnceList1, PairWithOnceList1Ext};
-use crate::variant::{ReadExtVariant, Variant, VariantIntegerType};
+use crate::variant::{ReadExtVariant, Variant, VariantIntegerType, WriteExtVariant};
 use crate::{ErrorKind, Result};
 use ::cached_pair::{EitherOrBoth, Pair};
 use ::derive_more::{Debug, Deref, DerefMut, TryUnwrap};
@@ -227,6 +227,26 @@ impl<A: Allocator + Clone> DynamicField<A> {
         self.payloads
             .into_left_with(|f_list| f_list.first().to_field(&alloc))
     }
+
+    pub fn extend_variants<T, I>(&mut self, iter: I, allow_packed: bool)
+    where
+        T: VariantIntegerType,
+        I: IntoIterator<Item = T::RustType>,
+    {
+        if allow_packed {
+            let alloc = self.allocator().clone();
+            let mut buf = Vec::new_in(alloc);
+            for val in iter {
+                buf.write_variant(Variant::from::<T>(val)).unwrap();
+            }
+            if !buf.is_empty() {
+                self.as_payloads_mut()
+                    .push(WireTypeAndPayload::Len(DynamicLenPayload::from_buf(buf)));
+            }
+        } else {
+            self.extend(iter.into_iter().map(|v| Variant::from::<T>(v)));
+        }
+    }
 }
 
 impl<A: Allocator> DynamicField<A> {
@@ -293,4 +313,55 @@ fn reduce_iter<T: Default>(
         }
     }
     Ok(last)
+}
+
+impl<A: Allocator + Clone> Extend<Variant> for DynamicField<A> {
+    fn extend<T: IntoIterator<Item = Variant>>(&mut self, iter: T) {
+        self.as_payloads_mut()
+            .extend(iter.into_iter().map(WireTypeAndPayload::Variant));
+    }
+}
+
+impl<A: Allocator + Clone> Extend<[u8; 4]> for DynamicField<A> {
+    fn extend<T: IntoIterator<Item = [u8; 4]>>(&mut self, iter: T) {
+        self.as_payloads_mut()
+            .extend(iter.into_iter().map(WireTypeAndPayload::I32));
+    }
+}
+
+impl<A: Allocator + Clone> Extend<[u8; 8]> for DynamicField<A> {
+    fn extend<T: IntoIterator<Item = [u8; 8]>>(&mut self, iter: T) {
+        self.as_payloads_mut()
+            .extend(iter.into_iter().map(WireTypeAndPayload::I64));
+    }
+}
+
+impl<A: Allocator + Clone> Extend<String> for DynamicField<A> {
+    fn extend<T: IntoIterator<Item = String>>(&mut self, iter: T) {
+        let alloc = self.allocator().clone();
+        self.as_payloads_mut().extend(iter.into_iter().map(|val| {
+            let mut buf = Vec::with_capacity_in(val.len(), alloc.clone());
+            buf.extend_from_slice(val.as_bytes());
+            WireTypeAndPayload::Len(DynamicLenPayload::from_buf(buf))
+        }));
+    }
+}
+
+impl<A: Allocator + Clone> Extend<Vec<u8, A>> for DynamicField<A> {
+    fn extend<T: IntoIterator<Item = Vec<u8, A>>>(&mut self, iter: T) {
+        self.as_payloads_mut().extend(
+            iter.into_iter()
+                .map(|val| WireTypeAndPayload::Len(DynamicLenPayload::from_buf(val))),
+        );
+    }
+}
+
+impl<A: Allocator + Clone> Extend<DynamicMessage<A>> for DynamicField<A> {
+    fn extend<T: IntoIterator<Item = DynamicMessage<A>>>(&mut self, iter: T) {
+        let alloc = self.allocator().clone();
+        self.as_payloads_mut().extend(
+            iter.into_iter()
+                .map(|val| WireTypeAndPayload::Len(DynamicLenPayload::from_message(val, &alloc))),
+        );
+    }
 }
