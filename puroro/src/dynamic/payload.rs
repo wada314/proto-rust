@@ -102,8 +102,13 @@ impl<A: Allocator + Clone> DynamicLenPayload<A> {
 
     pub(crate) fn as_buf(&self) -> &Vec<u8, A> {
         let alloc = self.allocator();
+        self.payload.left_with(|list| list.first().to_buf(alloc))
+    }
+
+    pub(crate) fn as_buf_mut(&mut self) -> &mut Vec<u8, A> {
+        let alloc = self.allocator().clone();
         self.payload
-            .left_with(|p_list| p_list.first().to_buf(alloc))
+            .left_mut_with(|list| list.first().to_buf(&alloc))
     }
 
     pub(crate) fn as_message(&self) -> Result<&DynamicMessage<A>> {
