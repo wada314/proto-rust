@@ -148,7 +148,7 @@ impl<A: Allocator + Clone> MessageMut<A> for DynamicMessage<A> {
 
 impl<A: Allocator + Clone> DeserMessageHandlerBase for DynamicMessage<A> {
     fn parse_variant(&mut self, num: i32, var: Variant) -> Result<()> {
-        self.field_mut(num).push_variant(var);
+        self.field_mut(num).push_variant(var, true);
         Ok(())
     }
     fn parse_i32(&mut self, num: i32, val: [u8; 4]) -> Result<()> {

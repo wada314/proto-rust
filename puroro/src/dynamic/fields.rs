@@ -153,9 +153,21 @@ impl<A: Allocator + Clone> DynamicField<A> {
         self.as_payloads_mut().clear();
     }
 
-    pub fn push_variant(&mut self, val: Variant) {
-        self.as_payloads_mut()
-            .push(WireTypeAndPayload::Variant(val));
+    pub fn push_variant(&mut self, val: Variant, allow_packed: bool) {
+        if allow_packed {
+            match self.as_payloads_mut().last_mut() {
+                Some(WireTypeAndPayload::Len(dyn_len_payload)) => {
+                    todo!()
+                }
+                _ => {
+                    self.as_payloads_mut()
+                        .push(WireTypeAndPayload::Len(todo!()));
+                }
+            }
+        } else {
+            self.as_payloads_mut()
+                .push(WireTypeAndPayload::Variant(val));
+        }
     }
 
     pub fn push_variant_from<T: VariantIntegerType>(&mut self, val: T::RustType) {
