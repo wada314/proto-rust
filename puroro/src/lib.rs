@@ -67,6 +67,8 @@ pub enum ErrorKind {
     DynamicMessageFieldTypeError,
     #[error("Error when converting an int32 to an (closed) enum value: {0}")]
     TryFromIntIntoEnumError(i32),
+    #[error("No left value available for generating default value")]
+    NoLeftValueForDefault,
 }
 impl From<String> for ErrorKind {
     fn from(s: String) -> Self {

@@ -110,11 +110,12 @@ impl<A: Allocator + Clone> DynamicLenPayload<A> {
         Ok(self
             .try_get_or_insert_into_right(
                 |lcpv| lcpv.try_unwrap_message_ref().is_ok(),
-                || {
+                |_| {
                     let mut message = DynamicMessage::new_in(self.allocator().clone());
                     message.merge_from_read(self.as_buf().as_slice())?;
                     Ok(LenCustomPayloadView::Message(message))
                 },
+                |lcpv| Ok(lcpv.to_buf(self.allocator())),
                 self.allocator(),
             )?
             .try_unwrap_message_ref()
@@ -125,13 +126,14 @@ impl<A: Allocator + Clone> DynamicLenPayload<A> {
         Ok(self
             .try_get_or_insert_into_right(
                 |lcpv| lcpv.try_unwrap_packed_variants_ref().is_ok(),
-                || {
+                |_| {
                     let mut vec = Vec::new_in(self.allocator().clone());
                     for v in self.as_buf().as_slice().into_variant_iter() {
                         vec.push(v?);
                     }
                     Ok(LenCustomPayloadView::PackedVariants(vec))
                 },
+                |lcpv| Ok(lcpv.to_buf(self.allocator())),
                 self.allocator(),
             )?
             .try_unwrap_packed_variants_ref()

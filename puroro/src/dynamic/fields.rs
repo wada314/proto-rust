@@ -131,7 +131,8 @@ impl<A: Allocator + Clone> DynamicField<A> {
     pub fn as_scalar_message(&self) -> Result<Option<&DynamicMessage<A>>> {
         let field_custom_view = self.payloads.try_get_or_insert_into_right(
             |v| v.try_unwrap_scalar_message_ref().is_ok(),
-            || FieldCustomView::try_scalar_message_from_payloads(self.as_payloads().into_iter()),
+            |_| FieldCustomView::try_scalar_message_from_payloads(self.as_payloads().into_iter()),
+            |v| Ok(v.to_field(self.allocator())),
             self.allocator(),
         )?;
         Ok(field_custom_view
@@ -154,20 +155,17 @@ impl<A: Allocator + Clone> DynamicField<A> {
     }
 
     pub fn push_variant(&mut self, val: Variant, allow_packed: bool) {
+        let payloads = self.as_payloads_mut();
         if allow_packed {
-            match self.as_payloads_mut().last_mut() {
-                Some(WireTypeAndPayload::Len(dyn_len_payload)) => {
-                    todo!()
-                }
-                _ => {
-                    self.as_payloads_mut()
-                        .push(WireTypeAndPayload::Len(todo!()));
+            if let Some(WireTypeAndPayload::Len(dyn_len_payload)) = payloads.last_mut() {
+                if let Ok(packed_variants) = dyn_len_payload.as_packed_variants() {
+                    packed_variants.push(val);
+                    return;
                 }
             }
-        } else {
-            self.as_payloads_mut()
-                .push(WireTypeAndPayload::Variant(val));
         }
+
+        payloads.push(WireTypeAndPayload::Variant(val));
     }
 
     pub fn push_variant_from<T: VariantIntegerType>(&mut self, val: T::RustType) {

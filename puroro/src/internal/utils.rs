@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use crate::Result;
-use ::std::alloc::Allocator;
-use ::cached_pair::Pair;
+use ::cached_pair::{EitherOrBoth, Pair};
 use ::once_list2::OnceList;
+use ::std::alloc::Allocator;
 use ::std::iter;
 
 #[derive(Clone)]
@@ -50,34 +50,47 @@ impl<T: ::std::fmt::Debug, A: Allocator> ::std::fmt::Debug for OnceList1<T, A> {
 }
 
 pub trait PairWithOnceList1Ext<L, T, A> {
-    fn try_get_or_insert_into_right<F: Fn(&T) -> bool, G: FnOnce() -> Result<T>>(
+    fn try_get_or_insert_into_right<
+        F: Fn(&T) -> bool,
+        G: FnOnce(&L) -> Result<T>,
+        H: FnOnce(&T) -> Result<L>,
+    >(
         &self,
         pred: F,
-        default: G,
+        to_right: G,
+        to_left: H,
         alloc: &A,
     ) -> Result<&T>;
 }
 impl<L, T, A: Allocator + Clone> PairWithOnceList1Ext<L, T, A> for Pair<L, OnceList1<T, A>> {
-    fn try_get_or_insert_into_right<F: Fn(&T) -> bool, G: FnOnce() -> Result<T>>(
+    fn try_get_or_insert_into_right<
+        F: Fn(&T) -> bool,
+        G: FnOnce(&L) -> Result<T>,
+        H: FnOnce(&T) -> Result<L>,
+    >(
         &self,
         pred: F,
-        default: G,
+        to_right: G,
+        to_left: H,
         alloc: &A,
     ) -> Result<&T> {
-        // Search for the value in the list.
+        // First try to find in existing list if available
         if let Some(list) = self.right_opt() {
-            if let Some(item) = list.iter().find(move |x| pred(*x)) {
+            if let Some(item) = list.iter().find(|x| pred(*x)) {
                 return Ok(item);
             }
         }
-        // No cached value found. We need to create a new value.
-        let mut value_opt = Some(default()?);
-        let list_ref =
-            self.right_with(|_| OnceList1::new_in(value_opt.take().unwrap(), A::clone(&alloc)));
-        Ok(if let Some(value) = value_opt {
-            list_ref.push(value)
-        } else {
-            list_ref.first()
-        })
+
+        // Not found, create new value
+        let value = match self.as_ref() {
+            EitherOrBoth::Both(left, _) | EitherOrBoth::Left(left) => to_right(left)?,
+            EitherOrBoth::Right(list) => {
+                let left = to_left(list.first())?;
+                to_right(&left)?
+            }
+        };
+
+        let list_ref = self.right_with(|_| OnceList1::new_in(value, A::clone(&alloc)));
+        Ok(list_ref.first())
     }
 }
