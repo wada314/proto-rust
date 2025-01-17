@@ -159,7 +159,7 @@ impl<A: Allocator + Clone> DynamicField<A> {
         if allow_packed {
             if let Some(WireTypeAndPayload::Len(dyn_len_payload)) = payloads.last_mut() {
                 if let Ok(packed_variants) = dyn_len_payload.as_packed_variants() {
-                    packed_variants.push(val);
+                    todo!(); // packed_variants.push(val);
                     return;
                 }
             }

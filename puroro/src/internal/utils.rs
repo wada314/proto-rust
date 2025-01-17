@@ -94,3 +94,116 @@ impl<L, T, A: Allocator + Clone> PairWithOnceList1Ext<L, T, A> for Pair<L, OnceL
         Ok(list_ref.first())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::alloc::Global;
+
+    #[test]
+    fn test_once_list1_basic() {
+        let list = OnceList1::new_in(1, Global);
+        assert_eq!(*list.first(), 1);
+
+        let items: Vec<_> = list.iter().copied().collect();
+        assert_eq!(items, vec![1]);
+    }
+
+    #[test]
+    fn test_once_list1_push() {
+        let list = OnceList1::new_in(1, Global);
+        list.push(2);
+        list.push(3);
+
+        let items: Vec<_> = list.iter().copied().collect();
+        assert_eq!(items, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_once_list1_debug() {
+        let list = OnceList1::new_in(1, Global);
+        list.push(2);
+
+        assert_eq!(format!("{:?}", list), "[1, 2]");
+    }
+
+    #[test]
+    fn test_pair_with_once_list1_ext() -> Result<()> {
+        #[derive(Debug, PartialEq, Clone)]
+        enum RadixStr {
+            Decimal(String),
+            Octal(String),
+            Hex(String),
+        }
+
+        impl RadixStr {
+            fn parse(&self) -> Option<i32> {
+                match self {
+                    RadixStr::Decimal(s) => s.parse().ok(),
+                    RadixStr::Octal(s) => s
+                        .strip_prefix('0')
+                        .and_then(|s| i32::from_str_radix(s, 8).ok()),
+                    RadixStr::Hex(s) => s
+                        .strip_prefix("0x")
+                        .and_then(|s| i32::from_str_radix(s, 16).ok()),
+                }
+            }
+        }
+
+        // Case 1: Right list is present and contains the expected value
+        {
+            let list = OnceList1::new_in(RadixStr::Hex("0x2a".to_string()), Global);
+            list.push(RadixStr::Octal("052".to_string()));
+            let pair = Pair::from_right(list);
+
+            let result = pair.try_get_or_insert_into_right(
+                |r: &RadixStr| matches!(r, RadixStr::Octal(_)),
+                |n: &i32| Ok(RadixStr::Octal(format!("0{:o}", n))),
+                |r: &RadixStr| {
+                    r.parse()
+                        .ok_or_else(|| "Invalid number format".to_string().into())
+                },
+                &Global,
+            )?;
+            assert_eq!(result, &RadixStr::Octal("052".to_string()));
+        }
+
+        // Case 2: Right list is present but doesn't contain the expected value, left value is present
+        {
+            let pair = Pair::from_left(42);
+            let _ = pair
+                .right_with(|i| OnceList1::new_in(RadixStr::Hex(format!("0x{:x}", *i)), Global));
+
+            let result = pair.try_get_or_insert_into_right(
+                |r: &RadixStr| matches!(r, RadixStr::Decimal(_)),
+                |n: &i32| Ok(RadixStr::Decimal(n.to_string())),
+                |r: &RadixStr| {
+                    r.parse()
+                        .ok_or_else(|| "Invalid number format".to_string().into())
+                },
+                &Global,
+            )?;
+            assert_eq!(result, &RadixStr::Decimal("42".to_string()));
+        }
+
+        // Case 3: Right list is present but doesn't contain the expected value, left value is not present
+        {
+            let list = OnceList1::new_in(RadixStr::Hex("0x2a".to_string()), Global);
+            let pair = Pair::from_right(list);
+
+            let result = pair.try_get_or_insert_into_right(
+                |r: &RadixStr| matches!(r, RadixStr::Decimal(_)),
+                |n: &i32| Ok(RadixStr::Decimal(n.to_string())),
+                |r: &RadixStr| {
+                    r.parse()
+                        .ok_or_else(|| "Invalid number format".to_string().into())
+                },
+                &Global,
+            )?;
+            // The value should be converted from the first item in the right list
+            assert_eq!(result, &RadixStr::Decimal("42".to_string()));
+        }
+
+        Ok(())
+    }
+}
