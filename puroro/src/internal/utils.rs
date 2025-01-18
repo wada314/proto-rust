@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::Result;
+use crate::{ErrorKind, Result};
 use ::cached_pair::{EitherOrBoth, Pair};
 use ::once_list2::OnceList;
 use ::std::alloc::Allocator;
@@ -46,6 +46,62 @@ impl<T: ::std::fmt::Debug, A: Allocator> ::std::fmt::Debug for OnceList1<T, A> {
             .entry(&self.0)
             .entries(self.1.iter())
             .finish()
+    }
+}
+
+pub trait PairWithOnceList1Ext2<L, R, A> {
+    fn try_get_or_insert_into_right<'a, T, F>(&'a self, to_right: F, alloc: A) -> Result<&'a T>
+    where
+        L: 'a,
+        R: 'a,
+        &'a R: TryInto<&'a T> + TryInto<L>,
+        ErrorKind: From<<&'a R as TryInto<&'a T>>::Error> + From<<&'a R as TryInto<L>>::Error>,
+        T: Into<R>,
+        F: FnOnce(&'a L) -> Result<T>;
+}
+
+impl<L, R, A> PairWithOnceList1Ext2<L, R, A> for Pair<L, OnceList1<R, A>>
+where
+    A: Allocator + Clone,
+{
+    fn try_get_or_insert_into_right<'a, T, F>(&'a self, to_right: F, alloc: A) -> Result<&'a T>
+    where
+        L: 'a,
+        R: 'a,
+        &'a R: TryInto<&'a T> + TryInto<L>,
+        ErrorKind: From<<&'a R as TryInto<&'a T>>::Error> + From<<&'a R as TryInto<L>>::Error>,
+        T: Into<R>,
+        F: FnOnce(&'a L) -> Result<T>,
+    {
+        // First try to find in existing list if available
+        if let Some(list) = self.right_opt() {
+            if let Some(item) = list.iter().find_map(|x| x.try_into().ok()) {
+                return Ok(item);
+            }
+
+            // List exists but value not found, create new value and push it
+            let value = match self.as_ref() {
+                EitherOrBoth::Both(left, _) | EitherOrBoth::Left(left) => to_right(left)?,
+                EitherOrBoth::Right(_) => {
+                    let left = list.first().try_into()?;
+                    to_right(&left)?
+                }
+            };
+            let right_item = list.push(value.into());
+            return Ok(right_item.try_into()?);
+        }
+
+        // List doesn't exist, create new list with the value
+        let value = match self.as_ref() {
+            EitherOrBoth::Both(left, _) | EitherOrBoth::Left(left) => to_right(left)?,
+            EitherOrBoth::Right(list) => {
+                let left = list.first().try_into()?;
+                to_right(&left)?
+            }
+        };
+
+        let list_ref = self.right_with(|_| OnceList1::new_in(value.into(), alloc));
+        Ok(list_ref.first().try_into()?)
     }
 }
 

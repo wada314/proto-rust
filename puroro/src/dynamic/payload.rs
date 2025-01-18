@@ -16,7 +16,7 @@ use crate::internal::utils::{OnceList1, PairWithOnceList1Ext};
 use crate::internal::WireType;
 use crate::message::MessageMut;
 use crate::variant::{ReadExtVariant, Variant, WriteExtVariant};
-use crate::Result;
+use crate::{ErrorKind, Result};
 use ::cached_pair::{EitherOrBoth, Pair};
 use ::derive_more::{Debug, Deref, DerefMut, TryUnwrap};
 use ::std::alloc::{Allocator, Global};
@@ -89,7 +89,7 @@ impl<A: Allocator + Clone> DynamicLenPayload<A> {
         }
     }
 
-    pub(crate) fn from_packed_variant(variant: Variant, alloc: &A) -> Self {
+    pub(crate) fn from_variant(variant: Variant, alloc: &A) -> Self {
         let mut vec = Vec::new_in(alloc.clone());
         vec.push(variant);
         Self {
@@ -159,6 +159,27 @@ impl<A: Allocator> From<Vec<u8, A>> for DynamicLenPayload<A> {
     fn from(value: Vec<u8, A>) -> Self {
         Self {
             payload: Pair::from_left(value),
+        }
+    }
+}
+
+impl<A: Allocator + Clone> TryFrom<LenCustomPayloadView<A>> for Vec<u8, A> {
+    type Error = ErrorKind;
+
+    fn try_from(value: LenCustomPayloadView<A>) -> Result<Self> {
+        match value {
+            LenCustomPayloadView::Message(msg) => {
+                let mut buf = Vec::new_in(msg.allocator().clone());
+                msg.write_to_vec(&mut buf);
+                Ok(buf)
+            }
+            LenCustomPayloadView::PackedVariants(variants) => {
+                let mut buf = Vec::new_in(variants.allocator().clone());
+                for v in variants {
+                    buf.write_variant(v)?;
+                }
+                Ok(buf)
+            }
         }
     }
 }
