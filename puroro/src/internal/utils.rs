@@ -50,28 +50,28 @@ impl<T: ::std::fmt::Debug, A: Allocator> ::std::fmt::Debug for OnceList1<T, A> {
 }
 
 pub trait PairWithOnceList1Ext2<L, R, A> {
-    fn try_get_or_insert_into_right<'a, T, F>(&'a self, to_right: F, alloc: A) -> Result<&'a T>
+    fn try_get_or_insert_into_right2<'a, T, F>(&'a self, to_right: F, alloc: A) -> Result<&'a T>
     where
         L: 'a,
         R: 'a,
         &'a R: TryInto<&'a T> + TryInto<L>,
         ErrorKind: From<<&'a R as TryInto<&'a T>>::Error> + From<<&'a R as TryInto<L>>::Error>,
         T: Into<R>,
-        F: FnOnce(&'a L) -> Result<T>;
+        F: FnOnce(&L) -> Result<T>;
 }
 
 impl<L, R, A> PairWithOnceList1Ext2<L, R, A> for Pair<L, OnceList1<R, A>>
 where
     A: Allocator + Clone,
 {
-    fn try_get_or_insert_into_right<'a, T, F>(&'a self, to_right: F, alloc: A) -> Result<&'a T>
+    fn try_get_or_insert_into_right2<'a, T, F>(&'a self, to_right: F, alloc: A) -> Result<&'a T>
     where
         L: 'a,
         R: 'a,
         &'a R: TryInto<&'a T> + TryInto<L>,
         ErrorKind: From<<&'a R as TryInto<&'a T>>::Error> + From<<&'a R as TryInto<L>>::Error>,
         T: Into<R>,
-        F: FnOnce(&'a L) -> Result<T>,
+        F: FnOnce(&L) -> Result<T>,
     {
         // First try to find in existing list if available
         if let Some(list) = self.right_opt() {
