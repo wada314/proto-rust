@@ -55,7 +55,7 @@ pub trait PairWithOnceList1Ext2<L, R, A> {
         L: 'a,
         R: 'a,
         &'a R: TryInto<&'a T> + TryInto<L>,
-        ErrorKind: From<<&'a R as TryInto<&'a T>>::Error> + From<<&'a R as TryInto<L>>::Error>,
+        ErrorKind: From<<&'a R as TryInto<L>>::Error>,
         T: Into<R>,
         F: FnOnce(&L) -> Result<T>;
 }
@@ -69,7 +69,7 @@ where
         L: 'a,
         R: 'a,
         &'a R: TryInto<&'a T> + TryInto<L>,
-        ErrorKind: From<<&'a R as TryInto<&'a T>>::Error> + From<<&'a R as TryInto<L>>::Error>,
+        ErrorKind: From<<&'a R as TryInto<L>>::Error>,
         T: Into<R>,
         F: FnOnce(&L) -> Result<T>,
     {
@@ -88,7 +88,7 @@ where
                 }
             };
             let right_item = list.push(value.into());
-            return Ok(right_item.try_into()?);
+            return Ok(unsafe { right_item.try_into().unwrap_unchecked() });
         }
 
         // List doesn't exist, create new list with the value
@@ -101,7 +101,7 @@ where
         };
 
         let list_ref = self.right_with(|_| OnceList1::new_in(value.into(), alloc));
-        Ok(list_ref.first().try_into()?)
+        Ok(unsafe { list_ref.first().try_into().unwrap_unchecked() })
     }
 }
 
@@ -215,6 +215,30 @@ mod tests {
         }
     }
 
+    impl<'a> TryFrom<&'a Int32Compatible> for &'a i32 {
+        type Error = ErrorKind;
+
+        fn try_from(value: &'a Int32Compatible) -> Result<Self> {
+            static mut CACHED: Option<(Int32Compatible, i32)> = None;
+
+            unsafe {
+                if let Some((ref cached_input, ref cached_output)) = CACHED {
+                    if cached_input == value {
+                        return Ok(cached_output);
+                    }
+                }
+
+                let result = i32::try_from(value)?;
+                CACHED = Some((value.clone(), result));
+                if let Some((_, ref output)) = CACHED {
+                    Ok(output)
+                } else {
+                    unreachable!()
+                }
+            }
+        }
+    }
+
     impl From<i32> for Int32Compatible {
         fn from(value: i32) -> Self {
             Int32Compatible::Array(value.to_le_bytes())
@@ -320,4 +344,16 @@ mod tests {
         assert_eq!(result, &RadixStr::Decimal("42".to_string()));
         Ok(())
     }
+
+    #[test]
+    fn test_pair_with_once_list1_ext2_find_existing() -> Result<()> {
+        let list = OnceList1::new_in(Int32Compatible::String("42".to_string()), Global);
+        list.push(Int32Compatible::Array(123i32.to_le_bytes()));
+        let pair: Pair<i32, _> = Pair::from_right(list);
+
+        let result: &String = pair.try_get_or_insert_into_right2(|n| Ok(n.to_string()), Global)?;
+        assert_eq!(*result, "42".to_string());
+        Ok(())
+    }
+
 }

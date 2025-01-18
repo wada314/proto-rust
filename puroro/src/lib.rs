@@ -75,4 +75,9 @@ impl From<String> for ErrorKind {
         ErrorKind::PuroroError(s)
     }
 }
+impl From<&'static str> for ErrorKind {
+    fn from(s: &'static str) -> Self {
+        ErrorKind::PuroroError(s.to_string())
+    }
+}
 pub type Result<T> = ::std::result::Result<T, ErrorKind>;
