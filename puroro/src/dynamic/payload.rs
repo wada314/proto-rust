@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::internal::utils::{OnceList1, PairWithOnceList1Ext};
+use crate::internal::utils::{OnceList1, PairWithOnceList1Ext, PairWithOnceList1Ext2};
 use crate::internal::WireType;
 use crate::message::MessageMut;
 use crate::variant::{ReadExtVariant, Variant, WriteExtVariant};
@@ -47,23 +47,24 @@ impl<A: Allocator> WireTypeAndPayload<A> {
     }
 }
 
-#[derive(Clone, Debug, TryUnwrap)]
+#[derive(Clone, Debug, TryUnwrap, ::derive_more::From, ::derive_more::TryInto)]
 #[try_unwrap(ref, ref_mut)]
+#[try_into(owned, ref)]
 pub enum LenCustomPayloadView<A: Allocator = Global> {
     Message(DynamicMessage<A>),
     PackedVariants(Vec<Variant, A>),
 }
 
 impl<A: Allocator + Clone> LenCustomPayloadView<A> {
-    pub(crate) fn to_buf(&self, alloc: &A) -> Vec<u8, A> {
+    pub(crate) fn to_buf(&self) -> Vec<u8, A> {
         match self {
             LenCustomPayloadView::Message(msg) => {
-                let mut buf = Vec::new_in(A::clone(alloc));
+                let mut buf = Vec::new_in(msg.allocator().clone());
                 msg.write_to_vec(&mut buf);
                 buf
             }
             LenCustomPayloadView::PackedVariants(variants) => {
-                let mut buf = Vec::new_in(A::clone(alloc));
+                let mut buf = Vec::new_in(variants.allocator().clone());
                 for v in variants {
                     buf.write_variant(v.clone()).unwrap();
                 }
@@ -101,30 +102,23 @@ impl<A: Allocator + Clone> DynamicLenPayload<A> {
     }
 
     pub(crate) fn as_buf(&self) -> &Vec<u8, A> {
-        let alloc = self.allocator();
-        self.payload.left_with(|list| list.first().to_buf(alloc))
+        self.payload.left_with(|list| list.first().to_buf())
     }
 
     pub(crate) fn as_buf_mut(&mut self) -> &mut Vec<u8, A> {
-        let alloc = self.allocator().clone();
-        self.payload
-            .left_mut_with(|list| list.first().to_buf(&alloc))
+        self.payload.left_mut_with(|list| list.first().to_buf())
     }
 
     pub(crate) fn as_message(&self) -> Result<&DynamicMessage<A>> {
-        Ok(self
-            .try_get_or_insert_into_right(
-                |lcpv| lcpv.try_unwrap_message_ref().is_ok(),
-                |_| {
-                    let mut message = DynamicMessage::new_in(self.allocator().clone());
-                    message.merge_from_read(self.as_buf().as_slice())?;
-                    Ok(LenCustomPayloadView::Message(message))
-                },
-                |lcpv| Ok(lcpv.to_buf(self.allocator())),
-                self.allocator(),
-            )?
-            .try_unwrap_message_ref()
-            .unwrap())
+        let alloc = self.allocator().clone();
+        Ok(self.try_get_or_insert_into_right2(
+            |vec| {
+                let mut message = DynamicMessage::new_in(self.allocator().clone());
+                message.merge_from_read(vec.as_slice())?;
+                Ok(message)
+            },
+            alloc,
+        )?)
     }
 
     pub(crate) fn as_packed_variants(&self) -> Result<&Vec<Variant, A>> {
@@ -138,7 +132,7 @@ impl<A: Allocator + Clone> DynamicLenPayload<A> {
                     }
                     Ok(LenCustomPayloadView::PackedVariants(vec))
                 },
-                |lcpv| Ok(lcpv.to_buf(self.allocator())),
+                |lcpv| Ok(lcpv.to_buf()),
                 self.allocator(),
             )?
             .try_unwrap_packed_variants_ref()
@@ -160,5 +154,11 @@ impl<A: Allocator> From<Vec<u8, A>> for DynamicLenPayload<A> {
         Self {
             payload: Pair::from_left(value),
         }
+    }
+}
+
+impl<A: Allocator + Clone> From<&LenCustomPayloadView<A>> for Vec<u8, A> {
+    fn from(value: &LenCustomPayloadView<A>) -> Self {
+        value.to_buf()
     }
 }
