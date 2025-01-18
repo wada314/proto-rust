@@ -187,6 +187,40 @@ mod tests {
         }
     }
 
+    impl TryFrom<&RadixStr> for RadixStr {
+        type Error = ErrorKind;
+
+        fn try_from(value: &RadixStr) -> Result<Self> {
+            Ok(value.clone())
+        }
+    }
+
+    #[derive(::derive_more::TryInto, ::derive_more::From, PartialEq, Debug, Clone)]
+    #[try_into(owned, ref)]
+    enum Int32Compatible {
+        String(String),
+        Array([u8; 4]),
+    }
+
+    impl TryFrom<&Int32Compatible> for i32 {
+        type Error = ErrorKind;
+
+        fn try_from(value: &Int32Compatible) -> Result<Self> {
+            match value {
+                Int32Compatible::String(s) => s
+                    .parse()
+                    .map_err(|_| "Invalid number format".to_string().into()),
+                Int32Compatible::Array(a) => Ok(i32::from_le_bytes(*a)),
+            }
+        }
+    }
+
+    impl From<i32> for Int32Compatible {
+        fn from(value: i32) -> Self {
+            Int32Compatible::Array(value.to_le_bytes())
+        }
+    }
+
     #[test]
     fn test_once_list1_basic() {
         let list = OnceList1::new_in(1, Global);
