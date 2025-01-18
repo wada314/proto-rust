@@ -356,4 +356,33 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_pair_with_once_list1_ext2_create_list_from_left() -> Result<()> {
+        let pair: Pair<i32, _> = Pair::from_left(42);
+
+        let result: &String = pair.try_get_or_insert_into_right2(|n| Ok(n.to_string()), Global)?;
+        assert_eq!(*result, "42".to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn test_pair_with_once_list1_ext2_push_new_value() -> Result<()> {
+        let list = OnceList1::new_in(Int32Compatible::Array(42i32.to_le_bytes()), Global);
+        let pair: Pair<i32, _> = Pair::from_right(list);
+
+        let result: &String = pair.try_get_or_insert_into_right2(|n| Ok(n.to_string()), Global)?;
+        assert_eq!(*result, "42".to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn test_pair_with_once_list1_ext2_both_sides_present_but_no_string() -> Result<()> {
+        let list = OnceList1::new_in(Int32Compatible::Array(42i32.to_le_bytes()), Global);
+        let pair: Pair<i32, _> = Pair::from_right(list);
+        let _ = pair.left_with(|_| 42);
+
+        let result: &String = pair.try_get_or_insert_into_right2(|n| Ok(n.to_string()), Global)?;
+        assert_eq!(*result, "123".to_string());
+        Ok(())
+    }
 }
