@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::internal::utils::{OnceList1, PairWithOnceList1Ext2};
+use crate::internal::utils::{OnceList1, PairWithOnceList1Ext};
 use crate::internal::WireType;
 use crate::message::MessageMut;
 use crate::variant::{ReadExtVariant, Variant, WriteExtVariant};
@@ -111,7 +111,7 @@ impl<A: Allocator + Clone> DynamicLenPayload<A> {
 
     pub(crate) fn as_message(&self) -> Result<&DynamicMessage<A>> {
         let alloc = self.allocator().clone();
-        Ok(self.try_get_or_insert_into_right2(
+        Ok(self.try_get_or_insert_into_right(
             |vec| {
                 let mut message = DynamicMessage::new_in(self.allocator().clone());
                 message.merge_from_read(vec.as_slice())?;
@@ -123,7 +123,7 @@ impl<A: Allocator + Clone> DynamicLenPayload<A> {
 
     pub(crate) fn as_packed_variants(&self) -> Result<&Vec<Variant, A>> {
         Ok(self
-            .try_get_or_insert_into_right2(
+            .try_get_or_insert_into_right(
                 |vec| {
                     let mut result = Vec::new_in(self.allocator().clone());
                     for v in vec.into_variant_iter() {

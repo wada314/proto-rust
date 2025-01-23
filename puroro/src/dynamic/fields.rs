@@ -14,7 +14,7 @@
 
 use crate::dynamic::payload::{DynamicLenPayload, WireTypeAndPayload};
 use crate::dynamic::DynamicMessage;
-use crate::internal::utils::{OnceList1, PairWithOnceList1Ext2};
+use crate::internal::utils::{OnceList1, PairWithOnceList1Ext};
 use crate::variant::{ReadExtVariant, Variant, VariantIntegerType, WriteExtVariant};
 use crate::{ErrorKind, Result};
 use ::cached_pair::{EitherOrBoth, Pair};
@@ -130,7 +130,7 @@ impl<A: Allocator + Clone> DynamicField<A> {
     }
 
     pub fn as_scalar_message(&self) -> Result<Option<&DynamicMessage<A>>> {
-        let &(ref scalar_message_ref, _) = self.payloads.try_get_or_insert_into_right2(
+        let &(ref scalar_message_ref, _) = self.payloads.try_get_or_insert_into_right(
             |payloads| {
                 Ok((
                     FieldCustomView::try_scalar_message_from_payloads(payloads.into_iter())?,

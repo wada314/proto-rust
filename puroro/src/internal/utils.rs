@@ -49,8 +49,8 @@ impl<T: ::std::fmt::Debug, A: Allocator> ::std::fmt::Debug for OnceList1<T, A> {
     }
 }
 
-pub trait PairWithOnceList1Ext2<L, R, A> {
-    fn try_get_or_insert_into_right2<'a, T, F>(&'a self, to_right: F, alloc: A) -> Result<&'a T>
+pub trait PairWithOnceList1Ext<L, R, A> {
+    fn try_get_or_insert_into_right<'a, T, F>(&'a self, to_right: F, alloc: A) -> Result<&'a T>
     where
         L: 'a,
         R: 'a,
@@ -60,11 +60,11 @@ pub trait PairWithOnceList1Ext2<L, R, A> {
         F: FnOnce(&L) -> Result<T>;
 }
 
-impl<L, R, A> PairWithOnceList1Ext2<L, R, A> for Pair<L, OnceList1<R, A>>
+impl<L, R, A> PairWithOnceList1Ext<L, R, A> for Pair<L, OnceList1<R, A>>
 where
     A: Allocator + Clone,
 {
-    fn try_get_or_insert_into_right2<'a, T, F>(&'a self, to_right: F, alloc: A) -> Result<&'a T>
+    fn try_get_or_insert_into_right<'a, T, F>(&'a self, to_right: F, alloc: A) -> Result<&'a T>
     where
         L: 'a,
         R: 'a,
@@ -102,62 +102,6 @@ where
 
         let list_ref = self.right_with(|_| OnceList1::new_in(value.into(), alloc));
         Ok(unsafe { list_ref.first().try_into().unwrap_unchecked() })
-    }
-}
-
-pub trait PairWithOnceList1Ext<L, T, A> {
-    fn try_get_or_insert_into_right<
-        F: Fn(&T) -> bool,
-        G: FnOnce(&L) -> Result<T>,
-        H: FnOnce(&T) -> Result<L>,
-    >(
-        &self,
-        pred: F,
-        to_right: G,
-        to_left: H,
-        alloc: &A,
-    ) -> Result<&T>;
-}
-impl<L, T, A: Allocator + Clone> PairWithOnceList1Ext<L, T, A> for Pair<L, OnceList1<T, A>> {
-    fn try_get_or_insert_into_right<
-        F: Fn(&T) -> bool,
-        G: FnOnce(&L) -> Result<T>,
-        H: FnOnce(&T) -> Result<L>,
-    >(
-        &self,
-        pred: F,
-        to_right: G,
-        to_left: H,
-        alloc: &A,
-    ) -> Result<&T> {
-        // First try to find in existing list if available
-        if let Some(list) = self.right_opt() {
-            if let Some(item) = list.iter().find(|x| pred(*x)) {
-                return Ok(item);
-            }
-
-            // List exists but value not found, create new value and push it
-            let value = match self.as_ref() {
-                EitherOrBoth::Both(left, _) | EitherOrBoth::Left(left) => to_right(left)?,
-                EitherOrBoth::Right(_) => {
-                    let left = to_left(list.first())?;
-                    to_right(&left)?
-                }
-            };
-            return Ok(list.push(value));
-        }
-
-        // List doesn't exist, create new list with the value
-        let value = match self.as_ref() {
-            EitherOrBoth::Both(left, _) | EitherOrBoth::Left(left) => to_right(left)?,
-            EitherOrBoth::Right(list) => {
-                let left = to_left(list.first())?;
-                to_right(&left)?
-            }
-        };
-
-        let list_ref = self.right_with(|_| OnceList1::new_in(value, A::clone(&alloc)));
-        Ok(list_ref.first())
     }
 }
 
@@ -274,114 +218,41 @@ mod tests {
 
     #[test]
     fn test_pair_with_once_list1_ext_find_existing() -> Result<()> {
-        let list = OnceList1::new_in(RadixStr::Hex("0x2a".to_string()), Global);
-        list.push(RadixStr::Octal("052".to_string()));
-        let pair = Pair::from_right(list);
+        let list = OnceList1::new_in(Int32Compatible::String("42".to_string()), Global);
+        list.push(Int32Compatible::Array(123i32.to_le_bytes()));
+        let pair: Pair<i32, _> = Pair::from_right(list);
 
-        let result = pair.try_get_or_insert_into_right(
-            |r: &RadixStr| matches!(r, RadixStr::Octal(_)),
-            |n: &i32| Ok(RadixStr::Octal(format!("0{:o}", n))),
-            |r: &RadixStr| {
-                r.parse()
-                    .ok_or_else(|| "Invalid number format".to_string().into())
-            },
-            &Global,
-        )?;
-        assert_eq!(result, &RadixStr::Octal("052".to_string()));
-        Ok(())
-    }
-
-    #[test]
-    fn test_pair_with_once_list1_ext_push_list_value_from_left() -> Result<()> {
-        let pair = Pair::from_left(42);
-        let _ =
-            pair.right_with(|i| OnceList1::new_in(RadixStr::Hex(format!("0x{:x}", *i)), Global));
-
-        let result = pair.try_get_or_insert_into_right(
-            |r: &RadixStr| matches!(r, RadixStr::Decimal(_)),
-            |n: &i32| Ok(RadixStr::Decimal(n.to_string())),
-            |r: &RadixStr| {
-                r.parse()
-                    .ok_or_else(|| "Invalid number format".to_string().into())
-            },
-            &Global,
-        )?;
-        assert_eq!(result, &RadixStr::Decimal("42".to_string()));
-        Ok(())
-    }
-
-    #[test]
-    fn test_pair_with_once_list1_ext_push_list_value_from_right() -> Result<()> {
-        let list = OnceList1::new_in(RadixStr::Hex("0x2a".to_string()), Global);
-        let pair = Pair::from_right(list);
-
-        let result = pair.try_get_or_insert_into_right(
-            |r: &RadixStr| matches!(r, RadixStr::Decimal(_)),
-            |n: &i32| Ok(RadixStr::Decimal(n.to_string())),
-            |r: &RadixStr| {
-                r.parse()
-                    .ok_or_else(|| "Invalid number format".to_string().into())
-            },
-            &Global,
-        )?;
-        assert_eq!(result, &RadixStr::Decimal("42".to_string()));
+        let result: &String = pair.try_get_or_insert_into_right(|n| Ok(n.to_string()), Global)?;
+        assert_eq!(*result, "42".to_string());
         Ok(())
     }
 
     #[test]
     fn test_pair_with_once_list1_ext_create_list_from_left() -> Result<()> {
-        let pair = Pair::from_left(42);
-
-        let result = pair.try_get_or_insert_into_right(
-            |r: &RadixStr| matches!(r, RadixStr::Decimal(_)),
-            |n: &i32| Ok(RadixStr::Decimal(n.to_string())),
-            |r: &RadixStr| {
-                r.parse()
-                    .ok_or_else(|| "Invalid number format".to_string().into())
-            },
-            &Global,
-        )?;
-        assert_eq!(result, &RadixStr::Decimal("42".to_string()));
-        Ok(())
-    }
-
-    #[test]
-    fn test_pair_with_once_list1_ext2_find_existing() -> Result<()> {
-        let list = OnceList1::new_in(Int32Compatible::String("42".to_string()), Global);
-        list.push(Int32Compatible::Array(123i32.to_le_bytes()));
-        let pair: Pair<i32, _> = Pair::from_right(list);
-
-        let result: &String = pair.try_get_or_insert_into_right2(|n| Ok(n.to_string()), Global)?;
-        assert_eq!(*result, "42".to_string());
-        Ok(())
-    }
-
-    #[test]
-    fn test_pair_with_once_list1_ext2_create_list_from_left() -> Result<()> {
         let pair: Pair<i32, _> = Pair::from_left(42);
 
-        let result: &String = pair.try_get_or_insert_into_right2(|n| Ok(n.to_string()), Global)?;
+        let result: &String = pair.try_get_or_insert_into_right(|n| Ok(n.to_string()), Global)?;
         assert_eq!(*result, "42".to_string());
         Ok(())
     }
 
     #[test]
-    fn test_pair_with_once_list1_ext2_push_new_value() -> Result<()> {
+    fn test_pair_with_once_list1_ext_push_new_value() -> Result<()> {
         let list = OnceList1::new_in(Int32Compatible::Array(42i32.to_le_bytes()), Global);
         let pair: Pair<i32, _> = Pair::from_right(list);
 
-        let result: &String = pair.try_get_or_insert_into_right2(|n| Ok(n.to_string()), Global)?;
+        let result: &String = pair.try_get_or_insert_into_right(|n| Ok(n.to_string()), Global)?;
         assert_eq!(*result, "42".to_string());
         Ok(())
     }
 
     #[test]
-    fn test_pair_with_once_list1_ext2_both_sides_present_but_no_string() -> Result<()> {
+    fn test_pair_with_once_list1_ext_both_sides_present_but_no_string() -> Result<()> {
         let list = OnceList1::new_in(Int32Compatible::Array(42i32.to_le_bytes()), Global);
         let pair: Pair<i32, _> = Pair::from_right(list);
         let _ = pair.left_with(|_| 42);
 
-        let result: &String = pair.try_get_or_insert_into_right2(|n| Ok(n.to_string()), Global)?;
+        let result: &String = pair.try_get_or_insert_into_right(|n| Ok(n.to_string()), Global)?;
         assert_eq!(*result, "123".to_string());
         Ok(())
     }
