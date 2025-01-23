@@ -18,35 +18,6 @@ use ::once_list2::OnceList;
 use ::std::alloc::Allocator;
 use ::std::iter;
 
-pub trait FromIteratorExt<T>: FromIterator<T> {
-    type Alloc: Allocator;
-    fn from_iter_in(iter: impl Iterator<Item = T>, alloc: Self::Alloc) -> Self;
-}
-
-impl<T, A: Allocator> FromIteratorExt<T> for Vec<T, A>
-where
-    Vec<T, A>: FromIterator<T>,
-{
-    type Alloc = A;
-    fn from_iter_in(iter: impl Iterator<Item = T>, alloc: Self::Alloc) -> Self {
-        let mut vec = Vec::new_in(alloc);
-        vec.extend(iter);
-        vec
-    }
-}
-
-pub trait IteratorExt: Iterator {
-    fn collect_in<B>(self, alloc: B::Alloc) -> B
-    where
-        B: FromIteratorExt<Self::Item>,
-        Self: Sized,
-    {
-        B::from_iter_in(self, alloc)
-    }
-}
-
-impl<I: Iterator> IteratorExt for I {}
-
 #[derive(Clone)]
 pub struct OnceList1<T, A: Allocator>(T, OnceList<T, A>);
 impl<T, A: Allocator> OnceList1<T, A> {
