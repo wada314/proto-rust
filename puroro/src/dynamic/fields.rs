@@ -14,7 +14,7 @@
 
 use crate::dynamic::payload::{DynamicLenPayload, WireTypeAndPayload};
 use crate::dynamic::DynamicMessage;
-use crate::internal::utils::{OnceList1, PairWithOnceList1Ext};
+use crate::internal::utils::{OnceList1, PairWithOnceList1Ext2};
 use crate::variant::{ReadExtVariant, Variant, VariantIntegerType, WriteExtVariant};
 use crate::{ErrorKind, Result};
 use ::cached_pair::{EitherOrBoth, Pair};
@@ -29,10 +29,11 @@ pub struct DynamicField<A: Allocator = Global> {
     payloads: Pair<Vec<WireTypeAndPayload<A>, A>, OnceList1<FieldCustomView<A>, A>>,
 }
 
-#[derive(Clone, Debug, TryUnwrap)]
+#[derive(Clone, Debug, TryUnwrap, ::derive_more::TryInto, ::derive_more::From)]
 #[try_unwrap(ref, ref_mut)]
+#[try_into(owned, ref)]
 pub enum FieldCustomView<A: Allocator = Global> {
-    ScalarMessage(Option<DynamicMessage<A>>),
+    ScalarMessage(#[debug("{:?}", _0.0)] (Option<DynamicMessage<A>>, A)),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -129,16 +130,16 @@ impl<A: Allocator + Clone> DynamicField<A> {
     }
 
     pub fn as_scalar_message(&self) -> Result<Option<&DynamicMessage<A>>> {
-        let field_custom_view = self.payloads.try_get_or_insert_into_right(
-            |v| v.try_unwrap_scalar_message_ref().is_ok(),
-            |_| FieldCustomView::try_scalar_message_from_payloads(self.as_payloads().into_iter()),
-            |v| Ok(v.to_field(self.allocator())),
-            self.allocator(),
+        let &(ref scalar_message_ref, _) = self.payloads.try_get_or_insert_into_right2(
+            |payloads| {
+                Ok((
+                    FieldCustomView::try_scalar_message_from_payloads(payloads.into_iter())?,
+                    payloads.allocator().clone(),
+                ))
+            },
+            self.allocator().clone(),
         )?;
-        Ok(field_custom_view
-            .try_unwrap_scalar_message_ref()
-            .unwrap()
-            .as_ref())
+        Ok(scalar_message_ref.as_ref())
     }
 
     pub fn as_repeated_message(&self) -> Result<impl Iterator<Item = Result<&DynamicMessage<A>>>> {
@@ -212,18 +213,16 @@ impl<A: Allocator + Clone> DynamicField<A> {
     }
 
     pub(crate) fn as_payloads(&self) -> &Vec<WireTypeAndPayload<A>, A> {
-        self.left_with(|f_list| f_list.first().to_field(self.allocator()))
+        self.left_with(|f_list| f_list.first().to_field())
     }
 
     pub(crate) fn as_payloads_mut(&mut self) -> &mut Vec<WireTypeAndPayload<A>, A> {
-        let alloc = A::clone(self.allocator());
-        self.left_mut_with(|f_list| f_list.first().to_field(&alloc))
+        self.left_mut_with(|f_list| f_list.first().to_field())
     }
 
     pub(crate) fn into_payloads(self) -> Vec<WireTypeAndPayload<A>, A> {
-        let alloc = A::clone(self.allocator());
         self.payloads
-            .into_left_with(|f_list| f_list.first().to_field(&alloc))
+            .into_left_with(|f_list| f_list.first().to_field())
     }
 
     pub fn extend_variants<T, I>(&mut self, iter: I, allow_packed: bool)
@@ -258,23 +257,23 @@ impl<A: Allocator> DynamicField<A> {
 }
 
 impl<A: Allocator + Clone> FieldCustomView<A> {
-    fn to_field(&self, alloc: &A) -> Vec<WireTypeAndPayload<A>, A> {
+    fn to_field(&self) -> Vec<WireTypeAndPayload<A>, A> {
         let encoded_bytes = match self {
-            FieldCustomView::ScalarMessage(Some(msg)) => {
-                let mut buf = Vec::new_in(A::clone(alloc));
+            FieldCustomView::ScalarMessage((Some(msg), alloc)) => {
+                let mut buf = Vec::new_in(alloc.clone());
                 msg.write_to_vec(&mut buf);
                 buf
             }
-            FieldCustomView::ScalarMessage(None) => Vec::new_in(A::clone(alloc)),
+            FieldCustomView::ScalarMessage((None, alloc)) => Vec::new_in(alloc.clone()),
         };
-        let mut payload_vec = Vec::with_capacity_in(1, A::clone(alloc));
+        let mut payload_vec = Vec::with_capacity_in(1, encoded_bytes.allocator().clone());
         payload_vec.push(WireTypeAndPayload::Len(encoded_bytes.into()));
         payload_vec
     }
 
     fn try_scalar_message_from_payloads<'a>(
         mut iter: impl Iterator<Item = &'a WireTypeAndPayload<A>>,
-    ) -> Result<Self>
+    ) -> Result<Option<DynamicMessage<A>>>
     where
         A: 'a,
     {
@@ -287,7 +286,14 @@ impl<A: Allocator + Clone> FieldCustomView<A> {
                 msg.get_or_insert_with(|| DynamicMessage::new_in(dyn_payload.allocator().clone()));
             msg_mut.merge(dyn_payload.as_message()?.clone());
         }
-        Ok(FieldCustomView::ScalarMessage(msg))
+        Ok(msg)
+    }
+}
+
+impl<A: Allocator + Clone> TryFrom<&FieldCustomView<A>> for Vec<WireTypeAndPayload<A>, A> {
+    type Error = ErrorKind;
+    fn try_from(value: &FieldCustomView<A>) -> Result<Self> {
+        Ok(value.to_field())
     }
 }
 
