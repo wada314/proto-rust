@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::internal::utils::{OnceList1, PairWithOnceList1Ext, PairWithOnceList1Ext2};
+use crate::internal::utils::{OnceList1, PairWithOnceList1Ext2};
 use crate::internal::WireType;
 use crate::message::MessageMut;
 use crate::variant::{ReadExtVariant, Variant, WriteExtVariant};
@@ -123,17 +123,15 @@ impl<A: Allocator + Clone> DynamicLenPayload<A> {
 
     pub(crate) fn as_packed_variants(&self) -> Result<&Vec<Variant, A>> {
         Ok(self
-            .try_get_or_insert_into_right(
-                |lcpv| lcpv.try_unwrap_packed_variants_ref().is_ok(),
-                |_| {
-                    let mut vec = Vec::new_in(self.allocator().clone());
-                    for v in self.as_buf().as_slice().into_variant_iter() {
-                        vec.push(v?);
+            .try_get_or_insert_into_right2(
+                |vec| {
+                    let mut result = Vec::new_in(self.allocator().clone());
+                    for v in vec.into_variant_iter() {
+                        result.push(v?);
                     }
-                    Ok(LenCustomPayloadView::PackedVariants(vec))
+                    Ok(LenCustomPayloadView::PackedVariants(result))
                 },
-                |lcpv| Ok(lcpv.to_buf()),
-                self.allocator(),
+                self.allocator().clone(),
             )?
             .try_unwrap_packed_variants_ref()
             .unwrap())
