@@ -108,36 +108,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::alloc::Global;
-
-    #[derive(Debug, PartialEq, Clone)]
-    enum RadixStr {
-        Decimal(String),
-        Octal(String),
-        Hex(String),
-    }
-
-    impl RadixStr {
-        fn parse(&self) -> Option<i32> {
-            match self {
-                RadixStr::Decimal(s) => s.parse().ok(),
-                RadixStr::Octal(s) => s
-                    .strip_prefix('0')
-                    .and_then(|s| i32::from_str_radix(s, 8).ok()),
-                RadixStr::Hex(s) => s
-                    .strip_prefix("0x")
-                    .and_then(|s| i32::from_str_radix(s, 16).ok()),
-            }
-        }
-    }
-
-    impl TryFrom<&RadixStr> for RadixStr {
-        type Error = ErrorKind;
-
-        fn try_from(value: &RadixStr) -> Result<Self> {
-            Ok(value.clone())
-        }
-    }
+    use ::std::alloc::Global;
 
     #[derive(::derive_more::TryInto, ::derive_more::From, PartialEq, Debug, Clone)]
     #[try_into(owned, ref)]
@@ -253,7 +224,7 @@ mod tests {
         let _ = pair.left_with(|_| 42);
 
         let result: &String = pair.try_get_or_insert_into_right(|n| Ok(n.to_string()), Global)?;
-        assert_eq!(*result, "123".to_string());
+        assert_eq!(*result, "42".to_string());
         Ok(())
     }
 }
