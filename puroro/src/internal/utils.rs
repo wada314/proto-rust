@@ -54,7 +54,8 @@ pub trait PairWithOnceList1Ext<L, R, A> {
     where
         L: 'a,
         R: 'a,
-        &'a R: TryInto<&'a T> + TryInto<L, Error = ErrorKind>,
+        &'a R: TryInto<&'a T> + TryInto<L>,
+        ErrorKind: From<<&'a R as TryInto<L>>::Error>,
         T: Into<R>,
         F: FnOnce(&L) -> Result<T>;
 }
@@ -67,7 +68,8 @@ where
     where
         L: 'a,
         R: 'a,
-        &'a R: TryInto<&'a T> + TryInto<L, Error = ErrorKind>,
+        &'a R: TryInto<&'a T> + TryInto<L>,
+        ErrorKind: From<<&'a R as TryInto<L>>::Error>,
         T: Into<R>,
         F: FnOnce(&L) -> Result<T>,
     {
