@@ -49,13 +49,16 @@ impl<T: ::std::fmt::Debug, A: Allocator> ::std::fmt::Debug for OnceList1<T, A> {
     }
 }
 
-pub trait PairWithOnceList1Ext<L, R, A> {
+pub(crate) struct WithAllocator<T, A>(pub(crate) T, pub(crate) A);
+
+pub(crate) trait PairWithOnceList1Ext<L, R, A> {
     fn try_get_or_insert_into_right<'a, T, F>(&'a self, to_right: F, alloc: A) -> Result<&'a T>
     where
         L: 'a,
         R: 'a,
-        &'a R: TryInto<&'a T> + TryInto<L>,
-        ErrorKind: From<<&'a R as TryInto<L>>::Error>,
+        &'a R: TryInto<&'a T>,
+        WithAllocator<&'a R, A>: TryInto<L>,
+        ErrorKind: From<<WithAllocator<&'a R, A> as TryInto<L>>::Error>,
         T: Into<R>,
         F: FnOnce(&L) -> Result<T>;
 }
@@ -68,8 +71,9 @@ where
     where
         L: 'a,
         R: 'a,
-        &'a R: TryInto<&'a T> + TryInto<L>,
-        ErrorKind: From<<&'a R as TryInto<L>>::Error>,
+        &'a R: TryInto<&'a T>,
+        WithAllocator<&'a R, A>: TryInto<L>,
+        ErrorKind: From<<WithAllocator<&'a R, A> as TryInto<L>>::Error>,
         T: Into<R>,
         F: FnOnce(&L) -> Result<T>,
     {
@@ -83,7 +87,7 @@ where
             let value = match self.as_ref() {
                 EitherOrBoth::Both(left, _) | EitherOrBoth::Left(left) => to_right(left)?,
                 EitherOrBoth::Right(_) => {
-                    let left = list.first().try_into()?;
+                    let left = WithAllocator(list.first(), alloc.clone()).try_into()?;
                     to_right(&left)?
                 }
             };
@@ -95,7 +99,7 @@ where
         let value = match self.as_ref() {
             EitherOrBoth::Both(left, _) | EitherOrBoth::Left(left) => to_right(left)?,
             EitherOrBoth::Right(list) => {
-                let left = list.first().try_into()?;
+                let left = WithAllocator(list.first(), alloc.clone()).try_into()?;
                 to_right(&left)?
             }
         };
@@ -117,39 +121,15 @@ mod tests {
         Array([u8; 4]),
     }
 
-    impl TryFrom<&Int32Compatible> for i32 {
+    impl TryFrom<WithAllocator<&Int32Compatible, Global>> for i32 {
         type Error = ErrorKind;
 
-        fn try_from(value: &Int32Compatible) -> Result<Self> {
-            match value {
+        fn try_from(value: WithAllocator<&Int32Compatible, Global>) -> Result<Self> {
+            match value.0 {
                 Int32Compatible::String(s) => s
                     .parse()
                     .map_err(|_| "Invalid number format".to_string().into()),
                 Int32Compatible::Array(a) => Ok(i32::from_le_bytes(*a)),
-            }
-        }
-    }
-
-    impl<'a> TryFrom<&'a Int32Compatible> for &'a i32 {
-        type Error = ErrorKind;
-
-        fn try_from(value: &'a Int32Compatible) -> Result<Self> {
-            static mut CACHED: Option<(Int32Compatible, i32)> = None;
-
-            unsafe {
-                if let Some((ref cached_input, ref cached_output)) = CACHED {
-                    if cached_input == value {
-                        return Ok(cached_output);
-                    }
-                }
-
-                let result = i32::try_from(value)?;
-                CACHED = Some((value.clone(), result));
-                if let Some((_, ref output)) = CACHED {
-                    Ok(output)
-                } else {
-                    unreachable!()
-                }
             }
         }
     }

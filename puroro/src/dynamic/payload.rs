@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::internal::utils::{OnceList1, PairWithOnceList1Ext};
+use crate::internal::utils::{OnceList1, PairWithOnceList1Ext, WithAllocator};
 use crate::internal::WireType;
 use crate::message::MessageMut;
 use crate::variant::{ReadExtVariant, Variant, WriteExtVariant};
@@ -158,5 +158,11 @@ impl<A: Allocator> From<Vec<u8, A>> for DynamicLenPayload<A> {
 impl<A: Allocator + Clone> From<&LenCustomPayloadView<A>> for Vec<u8, A> {
     fn from(value: &LenCustomPayloadView<A>) -> Self {
         value.to_buf()
+    }
+}
+
+impl<A: Allocator + Clone> From<WithAllocator<&LenCustomPayloadView<A>, A>> for Vec<u8, A> {
+    fn from(value: WithAllocator<&LenCustomPayloadView<A>, A>) -> Self {
+        value.0.to_buf()
     }
 }

@@ -14,7 +14,7 @@
 
 use crate::dynamic::payload::{DynamicLenPayload, WireTypeAndPayload};
 use crate::dynamic::DynamicMessage;
-use crate::internal::utils::{OnceList1, PairWithOnceList1Ext};
+use crate::internal::utils::{OnceList1, PairWithOnceList1Ext, WithAllocator};
 use crate::variant::{ReadExtVariant, Variant, VariantIntegerType, WriteExtVariant};
 use crate::{ErrorKind, Result};
 use ::cached_pair::{EitherOrBoth, Pair};
@@ -33,7 +33,7 @@ pub struct DynamicField<A: Allocator = Global> {
 #[try_unwrap(ref, ref_mut)]
 #[try_into(owned, ref)]
 pub enum FieldCustomView<A: Allocator = Global> {
-    ScalarMessage(#[debug("{:?}", _0.0)] (Option<DynamicMessage<A>>, A)),
+    ScalarMessage(Option<DynamicMessage<A>>),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -130,12 +130,11 @@ impl<A: Allocator + Clone> DynamicField<A> {
     }
 
     pub fn as_scalar_message(&self) -> Result<Option<&DynamicMessage<A>>> {
-        let &(ref scalar_message_ref, _) = self.payloads.try_get_or_insert_into_right(
+        let scalar_message_ref = self.payloads.try_get_or_insert_into_right(
             |payloads| {
-                Ok((
-                    FieldCustomView::try_scalar_message_from_payloads(payloads.into_iter())?,
-                    payloads.allocator().clone(),
-                ))
+                Ok(FieldCustomView::try_scalar_message_from_payloads(
+                    payloads.into_iter(),
+                )?)
             },
             self.allocator().clone(),
         )?;
@@ -213,16 +212,18 @@ impl<A: Allocator + Clone> DynamicField<A> {
     }
 
     pub(crate) fn as_payloads(&self) -> &Vec<WireTypeAndPayload<A>, A> {
-        self.left_with(|f_list| f_list.first().to_field())
+        self.left_with(|f_list| f_list.first().to_field(&self.allocator()))
     }
 
     pub(crate) fn as_payloads_mut(&mut self) -> &mut Vec<WireTypeAndPayload<A>, A> {
-        self.left_mut_with(|f_list| f_list.first().to_field())
+        let alloc = self.allocator().clone();
+        self.left_mut_with(|f_list| f_list.first().to_field(&alloc))
     }
 
     pub(crate) fn into_payloads(self) -> Vec<WireTypeAndPayload<A>, A> {
+        let alloc = self.allocator().clone();
         self.payloads
-            .into_left_with(|f_list| f_list.first().to_field())
+            .into_left_with(|f_list| f_list.first().to_field(&alloc))
     }
 
     pub fn extend_variants<T, I>(&mut self, iter: I, allow_packed: bool)
@@ -257,14 +258,14 @@ impl<A: Allocator> DynamicField<A> {
 }
 
 impl<A: Allocator + Clone> FieldCustomView<A> {
-    fn to_field(&self) -> Vec<WireTypeAndPayload<A>, A> {
+    fn to_field(&self, alloc: &A) -> Vec<WireTypeAndPayload<A>, A> {
         let encoded_bytes = match self {
-            FieldCustomView::ScalarMessage((Some(msg), alloc)) => {
+            FieldCustomView::ScalarMessage(Some(msg)) => {
                 let mut buf = Vec::new_in(alloc.clone());
                 msg.write_to_vec(&mut buf);
                 buf
             }
-            FieldCustomView::ScalarMessage((None, alloc)) => Vec::new_in(alloc.clone()),
+            FieldCustomView::ScalarMessage(None) => Vec::new_in(alloc.clone()),
         };
         let mut payload_vec = Vec::with_capacity_in(1, encoded_bytes.allocator().clone());
         payload_vec.push(WireTypeAndPayload::Len(encoded_bytes.into()));
@@ -290,10 +291,12 @@ impl<A: Allocator + Clone> FieldCustomView<A> {
     }
 }
 
-impl<A: Allocator + Clone> TryFrom<&FieldCustomView<A>> for Vec<WireTypeAndPayload<A>, A> {
+impl<A: Allocator + Clone> TryFrom<WithAllocator<&FieldCustomView<A>, A>>
+    for Vec<WireTypeAndPayload<A>, A>
+{
     type Error = ErrorKind;
-    fn try_from(value: &FieldCustomView<A>) -> Result<Self> {
-        Ok(value.to_field())
+    fn try_from(value: WithAllocator<&FieldCustomView<A>, A>) -> Result<Self> {
+        Ok(value.0.to_field(&value.1))
     }
 }
 
