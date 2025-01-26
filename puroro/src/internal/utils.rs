@@ -27,6 +27,12 @@ impl<T, A: Allocator> OnceList1<T, A> {
     pub fn first(&self) -> &T {
         &self.0
     }
+    pub fn last(&self) -> &T {
+        match self.1.last() {
+            Some(last) => last,
+            None => self.first(),
+        }
+    }
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         iter::once(&self.0).chain(self.1.iter())
     }
@@ -82,30 +88,27 @@ where
             if let Some(item) = list.iter().find_map(|x| x.try_into().ok()) {
                 return Ok(item);
             }
-
-            // List exists but value not found, create new value and push it
-            let value = match self.as_ref() {
-                EitherOrBoth::Both(left, _) | EitherOrBoth::Left(left) => to_right(left)?,
-                EitherOrBoth::Right(_) => {
-                    let left = WithAllocator(list.first(), alloc.clone()).try_into()?;
-                    to_right(&left)?
-                }
-            };
-            let right_item = list.push(value.into());
-            return Ok(unsafe { right_item.try_into().unwrap_unchecked() });
         }
 
-        // List doesn't exist, create new list with the value
-        let value = match self.as_ref() {
-            EitherOrBoth::Both(left, _) | EitherOrBoth::Left(left) => to_right(left)?,
-            EitherOrBoth::Right(list) => {
-                let left = WithAllocator(list.first(), alloc.clone()).try_into()?;
-                to_right(&left)?
-            }
-        };
+        // The value not exists. To create the new right value, we need to get the left value.
+        let left = self.try_left_with(|right_list| {
+            WithAllocator(right_list.first(), alloc.clone()).try_into()
+        })?;
 
-        let list_ref = self.right_with(|_| OnceList1::new_in(value.into(), alloc));
-        Ok(unsafe { list_ref.first().try_into().unwrap_unchecked() })
+        // Create the new right value. Store it as mut Optional for the following steps.
+        let mut value_opt = Some(to_right(left)?);
+
+        // Get the right list. If the list not exists, create it.
+        // We need to initialize the list with the value.
+        let list =
+            self.right_with(|_| OnceList1::new_in(value_opt.take().unwrap().into(), alloc.clone()));
+
+        // Push the new value into the list. This step is not necessary if we already added the value in the previous steps.
+        if let Some(value) = value_opt {
+            list.push(value.into());
+        }
+
+        Ok(unsafe { list.last().try_into().unwrap_unchecked() })
     }
 }
 
