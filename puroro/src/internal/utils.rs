@@ -67,6 +67,19 @@ pub(crate) trait PairWithOnceList1Ext<L, R, A> {
         ErrorKind: From<<WithAllocator<&'a R, A> as TryInto<L>>::Error>,
         T: Into<R>,
         F: FnOnce(&L) -> Result<T>;
+    fn try_get_mut_or_insert_into_right<'a, T, F>(
+        &'a mut self,
+        to_right: F,
+        alloc: A,
+    ) -> Result<&'a mut T>
+    where
+        L: 'a,
+        R: 'a,
+        &'a R: TryInto<&'a T>,
+        WithAllocator<&'a R, A>: TryInto<L>,
+        ErrorKind: From<<WithAllocator<&'a R, A> as TryInto<L>>::Error>,
+        T: Into<R>,
+        F: FnOnce(&L) -> Result<T>;
 }
 
 impl<L, R, A> PairWithOnceList1Ext<L, R, A> for Pair<L, OnceList1<R, A>>
@@ -109,6 +122,24 @@ where
         }
 
         Ok(unsafe { list.last().try_into().unwrap_unchecked() })
+    }
+
+    fn try_get_mut_or_insert_into_right<'a, T, F>(
+        &'a mut self,
+        to_right: F,
+        alloc: A,
+    ) -> Result<&'a mut T>
+    where
+        L: 'a,
+        R: 'a,
+        &'a R: TryInto<&'a T>,
+        WithAllocator<&'a R, A>: TryInto<L>,
+        ErrorKind: From<<WithAllocator<&'a R, A> as TryInto<L>>::Error>,
+        T: Into<R>,
+        F: FnOnce(&L) -> Result<T>,
+    {
+        // kore muzui
+        Ok(todo!())
     }
 }
 
