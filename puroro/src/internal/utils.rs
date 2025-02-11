@@ -104,17 +104,20 @@ where
         }
 
         // The value not exists. To create the new right value, we need to get the left value.
-        let left = self.try_left_with(|right_list| {
-            WithAllocator(right_list.first(), alloc.clone()).try_into()
-        })?;
+        let left = unsafe {
+            self.try_left_with(|right_list| {
+                WithAllocator(right_list.first(), alloc.clone()).try_into()
+            })?
+        };
 
         // Create the new right value. Store it as mut Optional for the following steps.
         let mut value_opt = Some(to_right(left)?);
 
         // Get the right list. If the list not exists, create it.
         // We need to initialize the list with the value.
-        let list =
-            self.right_with(|_| OnceList1::new_in(value_opt.take().unwrap().into(), alloc.clone()));
+        let list = unsafe {
+            self.right_with(|_| OnceList1::new_in(value_opt.take().unwrap().into(), alloc.clone()))
+        };
 
         // Push the new value into the list. This step is not necessary if we already added the value in the previous steps.
         if let Some(value) = value_opt {
@@ -235,7 +238,7 @@ mod tests {
     fn test_pair_with_once_list1_ext_both_sides_present_but_no_string() -> Result<()> {
         let list = OnceList1::new_in(Int32Compatible::Array(42i32.to_le_bytes()), Global);
         let pair: Pair<i32, _> = Pair::from_right(list);
-        let _ = pair.left_with(|_| 42);
+        let _ = unsafe { pair.left_with(|_| 42) };
 
         let result: &String = pair.try_get_or_insert_into_right(|n| Ok(n.to_string()), Global)?;
         assert_eq!(*result, "42".to_string());
