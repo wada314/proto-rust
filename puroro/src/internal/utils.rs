@@ -57,59 +57,58 @@ impl<T: ::std::fmt::Debug, A: Allocator> ::std::fmt::Debug for OnceList1<T, A> {
 
 pub(crate) struct WithAllocator<T, A>(pub(crate) T, pub(crate) A);
 
+pub(crate) struct ConverterForOnceList1<A, C>(C, A);
+impl<L, R, A, C> Converter<L, OnceList1<R, A>> for ConverterForOnceList1<A, C>
+where
+    C: Converter<L, R>,
+    A: Allocator + Clone,
+{
+    type ToLeftError<'a>
+        = C::ToLeftError<'a>
+    where
+        OnceList1<R, A>: 'a;
+    type ToRightError<'a>
+        = C::ToRightError<'a>
+    where
+        L: 'a;
+
+    fn convert_to_left<'a>(
+        &self,
+        right: &'a OnceList1<R, A>,
+    ) -> ::std::result::Result<L, Self::ToLeftError<'a>> {
+        self.0.convert_to_left(right.first())
+    }
+
+    fn convert_to_right<'a>(
+        &self,
+        left: &'a L,
+    ) -> ::std::result::Result<OnceList1<R, A>, Self::ToRightError<'a>> {
+        Ok(OnceList1::new_in(
+            self.0.convert_to_right(left)?,
+            self.1.clone(),
+        ))
+    }
+}
+
 pub(crate) trait PairWithOnceList1Ext<L, R, A, C> {
-    fn try_get_or_insert_into_right<'a, T, F>(&'a self, to_right: F, alloc: A) -> Result<&'a T>
-    where
-        L: 'a,
-        R: 'a,
-        &'a R: TryInto<&'a T>,
-        WithAllocator<&'a R, A>: TryInto<L>,
-        ErrorKind: From<<WithAllocator<&'a R, A> as TryInto<L>>::Error>,
-        T: Into<R>,
-        F: FnOnce(&L) -> Result<T>;
-    fn try_get_mut_or_insert_into_right<'a, T, F>(
-        &'a mut self,
-        to_right: F,
-        alloc: A,
-    ) -> Result<&'a mut T>
-    where
-        L: 'a,
-        R: 'a,
-        &'a R: TryInto<&'a T>,
-        WithAllocator<&'a R, A>: TryInto<L>,
-        ErrorKind: From<<WithAllocator<&'a R, A> as TryInto<L>>::Error>,
-        T: Into<R>,
-        F: FnOnce(&L) -> Result<T>;
+    fn try_get_or_insert_into_right(&self, pred: impl Fn(&R) -> bool) -> Result<&R>;
 }
 
 impl<L, R, A, C> PairWithOnceList1Ext<L, R, A, C> for Pair<L, OnceList1<R, A>, C>
 where
     A: Allocator + Clone,
-    C: Converter<L, OnceList1<R, A>>,
+    C: Converter<L, R>,
 {
-    fn try_get_or_insert_into_right<'a, T, F>(&'a self, to_right: F, alloc: A) -> Result<&'a T>
-    where
-        L: 'a,
-        R: 'a,
-        &'a R: TryInto<&'a T>,
-        WithAllocator<&'a R, A>: TryInto<L>,
-        ErrorKind: From<<WithAllocator<&'a R, A> as TryInto<L>>::Error>,
-        T: Into<R>,
-        F: FnOnce(&L) -> Result<T>,
-    {
+    fn try_get_or_insert_into_right(&self, pred: impl Fn(&R) -> bool) -> Result<&R> {
         // First try to find in existing list if available
         if let Some(list) = self.right_opt() {
-            if let Some(item) = list.iter().find_map(|x| x.try_into().ok()) {
+            if let Some(item) = list.iter().find(|x| pred(*x)) {
                 return Ok(item);
             }
         }
 
         // The value not exists. To create the new right value, we need to get the left value.
-        let left = unsafe {
-            self.try_left_with(|right_list| {
-                WithAllocator(right_list.first(), alloc.clone()).try_into()
-            })?
-        };
+        let left = unsafe {};
 
         // Create the new right value. Store it as mut Optional for the following steps.
         let mut value_opt = Some(to_right(left)?);
@@ -126,24 +125,6 @@ where
         }
 
         Ok(unsafe { list.last().try_into().unwrap_unchecked() })
-    }
-
-    fn try_get_mut_or_insert_into_right<'a, T, F>(
-        &'a mut self,
-        to_right: F,
-        alloc: A,
-    ) -> Result<&'a mut T>
-    where
-        L: 'a,
-        R: 'a,
-        &'a R: TryInto<&'a T>,
-        WithAllocator<&'a R, A>: TryInto<L>,
-        ErrorKind: From<<WithAllocator<&'a R, A> as TryInto<L>>::Error>,
-        T: Into<R>,
-        F: FnOnce(&L) -> Result<T>,
-    {
-        // kore muzui
-        Ok(todo!())
     }
 }
 
