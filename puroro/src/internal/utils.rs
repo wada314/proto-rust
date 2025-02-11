@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{ErrorKind, Result};
-use ::cached_pair::{EitherOrBoth, Pair};
+use ::cached_pair::{Converter, EitherOrBoth, Pair};
 use ::once_list2::OnceList;
 use ::std::alloc::Allocator;
 use ::std::iter;
@@ -57,7 +57,7 @@ impl<T: ::std::fmt::Debug, A: Allocator> ::std::fmt::Debug for OnceList1<T, A> {
 
 pub(crate) struct WithAllocator<T, A>(pub(crate) T, pub(crate) A);
 
-pub(crate) trait PairWithOnceList1Ext<L, R, A> {
+pub(crate) trait PairWithOnceList1Ext<L, R, A, C> {
     fn try_get_or_insert_into_right<'a, T, F>(&'a self, to_right: F, alloc: A) -> Result<&'a T>
     where
         L: 'a,
@@ -82,9 +82,10 @@ pub(crate) trait PairWithOnceList1Ext<L, R, A> {
         F: FnOnce(&L) -> Result<T>;
 }
 
-impl<L, R, A> PairWithOnceList1Ext<L, R, A> for Pair<L, OnceList1<R, A>>
+impl<L, R, A, C> PairWithOnceList1Ext<L, R, A, C> for Pair<L, OnceList1<R, A>, C>
 where
     A: Allocator + Clone,
+    C: Converter<L, OnceList1<R, A>>,
 {
     fn try_get_or_insert_into_right<'a, T, F>(&'a self, to_right: F, alloc: A) -> Result<&'a T>
     where
@@ -177,6 +178,29 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct TestConverter;
+
+    impl Converter<i32, OnceList1<Int32Compatible, Global>> for TestConverter {
+        type ToLeftError<'a> = ErrorKind;
+        type ToRightError<'a> = ErrorKind;
+
+        fn convert_to_left(
+            &self,
+            right: &OnceList1<Int32Compatible, Global>,
+        ) -> ::std::result::Result<i32, Self::ToLeftError<'_>> {
+            WithAllocator(right.first(), Global).try_into()
+        }
+
+        fn convert_to_right(
+            &self,
+            left: &i32,
+        ) -> ::std::result::Result<OnceList1<Int32Compatible, Global>, Self::ToRightError<'_>>
+        {
+            Ok(OnceList1::new_in((*left).into(), Global))
+        }
+    }
+
     #[test]
     fn test_once_list1_basic() {
         let list = OnceList1::new_in(1, Global);
@@ -208,7 +232,7 @@ mod tests {
     fn test_pair_with_once_list1_ext_find_existing() -> Result<()> {
         let list = OnceList1::new_in(Int32Compatible::String("42".to_string()), Global);
         list.push(Int32Compatible::Array(123i32.to_le_bytes()));
-        let pair: Pair<i32, _> = Pair::from_right(list);
+        let pair: Pair<i32, _, TestConverter> = Pair::from_right(list);
 
         let result: &String = pair.try_get_or_insert_into_right(|n| Ok(n.to_string()), Global)?;
         assert_eq!(*result, "42".to_string());
@@ -217,7 +241,7 @@ mod tests {
 
     #[test]
     fn test_pair_with_once_list1_ext_create_list_from_left() -> Result<()> {
-        let pair: Pair<i32, _> = Pair::from_left(42);
+        let pair: Pair<i32, _, TestConverter> = Pair::from_left(42);
 
         let result: &String = pair.try_get_or_insert_into_right(|n| Ok(n.to_string()), Global)?;
         assert_eq!(*result, "42".to_string());
@@ -227,7 +251,7 @@ mod tests {
     #[test]
     fn test_pair_with_once_list1_ext_push_new_value() -> Result<()> {
         let list = OnceList1::new_in(Int32Compatible::Array(42i32.to_le_bytes()), Global);
-        let pair: Pair<i32, _> = Pair::from_right(list);
+        let pair: Pair<i32, _, TestConverter> = Pair::from_right(list);
 
         let result: &String = pair.try_get_or_insert_into_right(|n| Ok(n.to_string()), Global)?;
         assert_eq!(*result, "42".to_string());
@@ -237,7 +261,7 @@ mod tests {
     #[test]
     fn test_pair_with_once_list1_ext_both_sides_present_but_no_string() -> Result<()> {
         let list = OnceList1::new_in(Int32Compatible::Array(42i32.to_le_bytes()), Global);
-        let pair: Pair<i32, _> = Pair::from_right(list);
+        let pair: Pair<i32, _, TestConverter> = Pair::from_right(list);
         let _ = unsafe { pair.left_with(|_| 42) };
 
         let result: &String = pair.try_get_or_insert_into_right(|n| Ok(n.to_string()), Global)?;
