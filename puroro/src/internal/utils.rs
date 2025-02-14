@@ -36,8 +36,16 @@ impl<T, A: Allocator> OnceList1<T, A> {
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         iter::once(&self.0).chain(self.1.iter())
     }
+    pub fn into_iter(self) -> impl Iterator<Item = T> {
+        iter::once(self.0).chain(self.1.into_iter())
+    }
     pub fn allocator(&self) -> &A {
         self.1.allocator()
+    }
+}
+impl<T, A: Allocator + Clone> OnceList1<T, A> {
+    pub fn extend(&self, other: impl IntoIterator<Item = T>) {
+        self.1.extend(other);
     }
 }
 impl<T, A: Allocator + Clone> OnceList1<T, A> {
@@ -57,8 +65,8 @@ impl<T: ::std::fmt::Debug, A: Allocator> ::std::fmt::Debug for OnceList1<T, A> {
 
 pub(crate) struct WithAllocator<T, A>(pub(crate) T, pub(crate) A);
 
-pub(crate) struct ConverterForOnceList1<A, C>(C, A);
-impl<L, R, A, C> Converter<L, OnceList1<R, A>> for ConverterForOnceList1<A, C>
+pub(crate) struct ConverterForOnceList1<C, A>(C, A);
+impl<L, R, A, C> Converter<L, OnceList1<R, A>> for ConverterForOnceList1<C, A>
 where
     C: Converter<L, R>,
     A: Allocator + Clone,
@@ -94,10 +102,13 @@ pub(crate) trait PairWithOnceList1Ext<L, R, A, C> {
     fn try_get_or_insert_into_right(&self, pred: impl Fn(&R) -> bool) -> Result<&R>;
 }
 
-impl<L, R, A, C> PairWithOnceList1Ext<L, R, A, C> for Pair<L, OnceList1<R, A>, C>
+impl<L, R, A, C> PairWithOnceList1Ext<L, R, A, C>
+    for Pair<L, OnceList1<R, A>, ConverterForOnceList1<C, A>>
 where
     A: Allocator + Clone,
-    C: Converter<L, R>,
+    for<'a> C: Converter<L, R, ToLeftError<'a> = ErrorKind, ToRightError<'a> = ErrorKind>,
+    for<'a> R: 'a,
+    for<'a> L: 'a,
 {
     fn try_get_or_insert_into_right(&self, pred: impl Fn(&R) -> bool) -> Result<&R> {
         // First try to find in existing list if available
@@ -105,26 +116,14 @@ where
             if let Some(item) = list.iter().find(|x| pred(*x)) {
                 return Ok(item);
             }
+
+            // The value not exists, but the list exists.
+            list.push(self.converter().0.convert_to_right(self.try_left()?)?);
+        } else {
+            // The value not exists, and the list not exists.
+            // No need to do anything, because the list will be generated in the next step.
         }
-
-        // The value not exists. To create the new right value, we need to get the left value.
-        let left = unsafe {};
-
-        // Create the new right value. Store it as mut Optional for the following steps.
-        let mut value_opt = Some(to_right(left)?);
-
-        // Get the right list. If the list not exists, create it.
-        // We need to initialize the list with the value.
-        let list = unsafe {
-            self.right_with(|_| OnceList1::new_in(value_opt.take().unwrap().into(), alloc.clone()))
-        };
-
-        // Push the new value into the list. This step is not necessary if we already added the value in the previous steps.
-        if let Some(value) = value_opt {
-            list.push(value.into());
-        }
-
-        Ok(unsafe { list.last().try_into().unwrap_unchecked() })
+        Ok(self.try_right()?.last())
     }
 }
 
