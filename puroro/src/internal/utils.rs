@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{ErrorKind, Result};
-use ::cached_pair::{Converter, EitherOrBoth, Pair};
+use ::cached_pair::{Converter, Pair, StdConverter};
 use ::once_list2::OnceList;
 use ::std::alloc::Allocator;
 use ::std::iter;
@@ -64,6 +64,9 @@ impl<T: ::std::fmt::Debug, A: Allocator> ::std::fmt::Debug for OnceList1<T, A> {
 }
 
 pub(crate) struct WithAllocator<T, A>(pub(crate) T, pub(crate) A);
+
+pub(crate) type PairWithOnceList1<L, R, A, C = StdConverter<L, R>> =
+    Pair<L, OnceList1<R, A>, ConverterForOnceList1<C, A>>;
 
 pub(crate) struct ConverterForOnceList1<C, A>(C, A);
 impl<L, R, A, C> Converter<L, OnceList1<R, A>> for ConverterForOnceList1<C, A>

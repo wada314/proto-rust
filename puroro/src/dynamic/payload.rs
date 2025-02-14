@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::internal::utils::{OnceList1, PairWithOnceList1Ext, WithAllocator};
+use crate::internal::utils::{OnceList1, PairWithOnceList1, PairWithOnceList1Ext, WithAllocator};
 use crate::internal::WireType;
 use crate::message::MessageMut;
 use crate::variant::{ReadExtVariant, Variant, WriteExtVariant};
@@ -25,7 +25,7 @@ use super::DynamicMessage;
 
 #[derive(Clone, Debug, Deref, DerefMut)]
 pub struct DynamicLenPayload<A: Allocator = Global> {
-    payload: Pair<Vec<u8, A>, OnceList1<LenCustomPayloadView<A>, A>>,
+    payload: PairWithOnceList1<Vec<u8, A>, LenCustomPayloadView<A>, A>,
 }
 
 #[derive(Clone, Debug)]
@@ -111,7 +111,7 @@ impl<A: Allocator + Clone> DynamicLenPayload<A> {
 
     pub(crate) fn as_message(&self) -> Result<&DynamicMessage<A>> {
         let alloc = self.allocator().clone();
-        Ok(self.try_get_or_insert_into_right(
+        Ok(self.payload.try_get_or_insert_into_right(
             |vec| {
                 let mut message = DynamicMessage::new_in(self.allocator().clone());
                 message.merge_from_read(vec.as_slice())?;
